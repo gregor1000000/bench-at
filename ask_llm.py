@@ -88,8 +88,7 @@ def build_prompt(selected: list[dict]) -> str:
     lines.append("---")
     lines.append("")
     lines.append("For each problem above, tell me:")
-    lines.append("1. What is the pattern/rule of the sequence?")
-    lines.append("2. Which answer option(s) are correct and why?")
+    lines.append("Which answer option(s) are correct and why?")
     return "\n".join(lines)
 
 
