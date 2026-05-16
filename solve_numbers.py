@@ -1,10 +1,8 @@
 import csv
 import os
-import json
 import re
 import sys
-import urllib.request
-import urllib.error
+import requests
 from pathlib import Path
 
 
@@ -12,6 +10,7 @@ BASE_DIR = Path(__file__).parent
 CSV_PATH = BASE_DIR / "Zahlenfolgen.csv"
 ENV_PATH = BASE_DIR / ".env"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "google/gemma-4-26b-a4b-it"
 
 
 def load_env():
@@ -30,20 +29,6 @@ def load_env():
 def read_questions() -> list[dict]:
     with open(CSV_PATH, newline="") as f:
         return list(csv.DictReader(f))
-
-
-def display_questions(questions: list[dict]):
-    print(f"\n{'='*80}")
-    print(f"{'ID':>4} | {'Sequence (n1..n7)':>40} | {'Answers (A..E)':>30}")
-    print(f"{'='*80}")
-    for q in questions:
-        seq = ", ".join(q[f"n{i}"] for i in range(1, 8))
-        ans_keys = [f"{l}_ans1" for l in "ABCDE"]
-        ans_str = " / ".join(
-            f"{l}:{q[k]},{q[k.replace('_ans1','_ans2')]}"
-            for l, k in zip("ABCDE", ans_keys)
-        )
-        print(f"{q['question_id']:>4} | {seq:>40} | {ans_str[:60]}")
 
 
 def parse_selection(questions: list[dict], raw: str) -> list[dict]:
@@ -67,7 +52,7 @@ def parse_selection(questions: list[dict], raw: str) -> list[dict]:
 
 def build_prompt(selected: list[dict]) -> str:
     lines = []
-    lines.append("Below are number sequence problems from a test called Number Sequences'.")
+    lines.append("Below are number sequence problems from a test called Number Sequences.")
     lines.append("Each problem shows a sequence of 7 numbers (n1..n7) where the last two are marked '?'.")
     lines.append("For each problem, 5 answer options (A through E) are given, each with two numbers (ans1, ans2).")
     lines.append("Your task: determine the correct answer(s) and explain the pattern/rule behind the sequence.")
@@ -98,36 +83,28 @@ def call_llm(prompt: str) -> str:
         print("Error: OPEN_ROUTER_API_KEY not set in environment or .env", file=sys.stderr)
         sys.exit(1)
 
-    payload = json.dumps({
-        "model": "deepseek/deepseek-v4-flash:free",
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode()
-
-    req = urllib.request.Request(
-        OPENROUTER_URL,
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/opencode-ai",
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read())
-        return result["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode()
-        print(f"API error {e.code}: {body}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Request failed: {e}", file=sys.stderr)
+        resp = requests.post(
+            OPENROUTER_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={"model": MODEL, "messages": [{"role": "user", "content": prompt}]},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    except requests.RequestException as e:
+        print(f"API error: {e}", file=sys.stderr)
+        if hasattr(e, "response") and e.response is not None:
+            print(e.response.text, file=sys.stderr)
         sys.exit(1)
 
 
 def main():
+    dryrun = "--dryrun" in sys.argv
+
     load_env()
     questions = read_questions()
 
@@ -135,15 +112,23 @@ def main():
         print("No questions found in CSV.", file=sys.stderr)
         sys.exit(1)
 
-    display_questions(questions)
-
-    print(f"\nTotal: {len(questions)} problems")
+    print(f"{len(questions)} problems loaded. Enter IDs or 'list' to see them.")
     selection_raw = input("\nSelect problems by ID (e.g. 1,3,5-10,42): ").strip()
-    selected = parse_selection(questions, selection_raw)
 
-    print(f"\nSelected {len(selected)} problem(s). Building prompt and sending to LLM...\n")
+    if selection_raw.lower() == "list":
+        for q in questions:
+            seq = ", ".join(q[f"n{i}"] for i in range(1, 8))
+            print(f"  {q['question_id']:>4}: {seq}")
+        selection_raw = input("\nSelect problems by ID: ").strip()
+
+    selected = parse_selection(questions, selection_raw)
     prompt = build_prompt(selected)
 
+    if dryrun:
+        print(prompt)
+        return
+
+    print(f"\nSelected {len(selected)} problem(s). Sending to LLM...\n")
     response = call_llm(prompt)
     print(response)
 
