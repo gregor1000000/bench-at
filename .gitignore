@@ -10,4 +10,12 @@ wheels/
 .venv
 
 .env
-*.pdf
+
+# Raw source data (PDFs, CSVs) — do NOT commit, would leak benchmark
+data/raw/
+
+# Derived task artifacts (JSONL, PNGs) — same reason
+data/canonical/
+
+# LLM evaluation outputs (contain task content)
+evaluation/
