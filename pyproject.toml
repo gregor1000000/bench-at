@@ -1,7 +1,7 @@
 [project]
 name = "bench-at"
 version = "0.1.0"
-description = "Add your description here"
+description = "A LLM Benchmark evaluating on tasks based on the format of the Austrian Medical Entrance Exams, called Med-AT"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
